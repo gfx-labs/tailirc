@@ -191,7 +191,8 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 
 	ui := tui.New(tui.Config{
 		Channel: normalizeChannel(cmd.String("channel")),
-		Info:    fmt.Sprintf("hosting for %d allowed keys. share: tailirc tui '%s#general'", allowed, addr),
+		Info:    fmt.Sprintf("hosting for %d allowed keys. Alt-Shift-C copies the address to share", allowed),
+		Addr:    string(addr),
 	})
 	irc := ircd.New(ircd.Config{HistoryLimit: int(cmd.Int("history")), Logf: ui.Logf})
 	ctx, cancel := context.WithCancel(ctx)

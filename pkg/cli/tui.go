@@ -17,7 +17,7 @@ func runTUI(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("missing ADDR[#CHANNEL]")
 	}
 	addr, channel, _ := strings.Cut(arg, "#")
-	ui := tui.New(tui.Config{Channel: normalizeChannel(channel)})
+	ui := tui.New(tui.Config{Channel: normalizeChannel(channel), Addr: addr})
 	return ui.Run(ctx, func(ctx context.Context) (net.Conn, error) {
 		conn, tc, err := dialServer(ctx, cmd, addr)
 		if err != nil {

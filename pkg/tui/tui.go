@@ -21,6 +21,8 @@ type Config struct {
 	// Info is shown at the top of the message view, for example the server
 	// address when hosting.
 	Info string
+	// Addr is the server's tailcat address. Alt-Shift-C copies Addr#channel.
+	Addr string
 }
 
 // UI is a running terminal session. Logf may be used from any goroutine,
@@ -30,6 +32,8 @@ type UI struct {
 	messages *tview.TextView
 	input    *tview.InputField
 	title    *tview.TextView
+	addr     string
+	screen   tcell.Screen
 
 	mu      sync.Mutex
 	client  *ircclient.Client
@@ -46,13 +50,14 @@ func New(config Config) *UI {
 		messages: tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetWrap(true),
 		input:    tview.NewInputField().SetLabel("> ").SetFieldBackgroundColor(tcell.ColorDefault),
 		title:    tview.NewTextView().SetDynamicColors(true),
+		addr:     config.Addr,
 		channel:  config.Channel,
 	}
 	u.messages.SetMaxLines(5000)
 	if config.Info != "" {
 		u.system("%s", config.Info)
 	}
-	u.system("commands: /join #channel, /quit. PgUp/PgDn scroll.")
+	u.system("commands: /join #channel, /quit. PgUp/PgDn scroll. Alt-Shift-C copies address#channel.")
 	u.setTitle()
 
 	u.input.SetDoneFunc(func(key tcell.Key) {
@@ -64,6 +69,10 @@ func New(config Config) *UI {
 		u.submit(line)
 	})
 	u.app.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Key() == tcell.KeyRune && ev.Modifiers()&tcell.ModAlt != 0 && ev.Rune() == 'C' {
+			u.copyTarget()
+			return nil
+		}
 		switch ev.Key() {
 		case tcell.KeyPgUp, tcell.KeyPgDn:
 			u.messages.InputHandler()(ev, nil)
@@ -98,7 +107,31 @@ func (u *UI) setTitle() {
 		name = u.client.Nick
 	}
 	u.mu.Unlock()
-	u.title.SetText(fmt.Sprintf("[::b]tailirc[::-] %s  [yellow]%s[-]", tview.Escape(ch), name))
+	u.title.SetText(fmt.Sprintf("[::b]tailirc[::-] %s  [yellow]%s[-]  [gray]%s  Alt-Shift-C copy[-]",
+		tview.Escape(ch), name, tview.Escape(shortAddr(u.addr)+ch)))
+}
+
+func shortAddr(addr string) string {
+	if len(addr) > 20 {
+		return addr[:16] + "..."
+	}
+	return addr
+}
+
+// copyTarget copies addr#channel to the clipboard. Call only from the UI goroutine.
+func (u *UI) copyTarget() {
+	if u.addr == "" {
+		u.system("no server address to copy")
+		return
+	}
+	u.mu.Lock()
+	target := u.addr + u.channel
+	u.mu.Unlock()
+	if err := copyToClipboard(u.screen, target); err != nil {
+		u.system("copy failed: %v", err)
+		return
+	}
+	u.system("copied %s", shortAddr(u.addr)+u.channel)
 }
 
 func (u *UI) submit(line string) {
@@ -206,6 +239,12 @@ func (u *UI) Run(ctx context.Context, connect func(context.Context) (net.Conn, e
 		u.app.Stop()
 	}()
 	go u.session(ctx, connect)
+	screen, err := tcell.NewScreen()
+	if err != nil {
+		return err
+	}
+	u.screen = screen
+	u.app.SetScreen(screen)
 	return u.app.Run()
 }
 
