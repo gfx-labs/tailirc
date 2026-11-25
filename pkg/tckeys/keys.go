@@ -75,8 +75,9 @@ func LoadClientKey(name string) (key.NodePrivate, error) {
 	return k.Private, nil
 }
 
-// ParseAllowKeys parses nodekey:... values separated by commas, spaces or
-// newlines. Lines starting with # are comments.
+// ParseAllowKeys parses allowed keys separated by commas, spaces or newlines.
+// Each entry is a nodekey:... public key, or a tailcat address whose server
+// public key is used. # starts a comment.
 func ParseAllowKeys(text string, set *tailcat.KeySet) (int, error) {
 	count := 0
 	for _, line := range strings.Split(text, "\n") {
@@ -84,18 +85,30 @@ func ParseAllowKeys(text string, set *tailcat.KeySet) (int, error) {
 			line = line[:i]
 		}
 		for _, field := range strings.FieldsFunc(line, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\r' }) {
-			var k key.NodePublic
-			if strings.HasPrefix(field, "tc") {
-				return count, fmt.Errorf("%.12s... is a tailcat address, not a client key; the client should run `tailcat genkey --client --key=client-default` (or `tailcat printpub`) and share the nodekey:... it prints", field)
-			}
-			if err := k.UnmarshalText([]byte(field)); err != nil {
-				return count, fmt.Errorf("invalid allowed key %.20q, want nodekey:<64 hex>: %w", field, err)
+			k, err := parseAllowKey(field)
+			if err != nil {
+				return count, err
 			}
 			set.Add(k)
 			count++
 		}
 	}
 	return count, nil
+}
+
+func parseAllowKey(field string) (key.NodePublic, error) {
+	var k key.NodePublic
+	if strings.HasPrefix(field, "tc") {
+		info, err := tailcat.ParseAddr(tailcat.Addr(field))
+		if err != nil {
+			return k, fmt.Errorf("invalid tailcat address %.12s...: %w", field, err)
+		}
+		return info.ServerPublic.NodePublic, nil
+	}
+	if err := k.UnmarshalText([]byte(field)); err != nil {
+		return k, fmt.Errorf("invalid allowed key %.20q, want nodekey:<64 hex> or a tailcat address: %w", field, err)
+	}
+	return k, nil
 }
 
 // Nick derives a nick from the hex form of a node public key.
