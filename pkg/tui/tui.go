@@ -32,6 +32,7 @@ type UI struct {
 	messages *tview.TextView
 	input    *tview.InputField
 	title    *tview.TextView
+	theme    Theme
 	addr     string
 	screen   tcell.Screen
 
@@ -45,7 +46,10 @@ func New(config Config) *UI {
 	if config.Channel == "" {
 		config.Channel = "#general"
 	}
+	theme := loadTheme()
+	theme.apply()
 	u := &UI{
+		theme:    theme,
 		app:      tview.NewApplication(),
 		messages: tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetWrap(true),
 		input:    tview.NewInputField().SetLabel("> ").SetFieldBackgroundColor(tcell.ColorDefault),
@@ -96,7 +100,7 @@ func (u *UI) Logf(format string, args ...any) {
 
 // system writes a status line. Call only from the UI goroutine or before Run.
 func (u *UI) system(format string, args ...any) {
-	fmt.Fprintf(u.messages, "[gray]-- %s[-]\n", tview.Escape(fmt.Sprintf(format, args...)))
+	fmt.Fprintf(u.messages, "[%s]-- %s[-]\n", u.theme.Dim, tview.Escape(fmt.Sprintf(format, args...)))
 }
 
 // setTitle updates the title bar. Call only from the UI goroutine or before Run.
@@ -107,8 +111,8 @@ func (u *UI) setTitle() {
 		name = u.client.Nick
 	}
 	u.mu.Unlock()
-	u.title.SetText(fmt.Sprintf("[::b]tailirc[::-] %s  [yellow]%s[-]  [gray]%s  Alt-Shift-C copy[-]",
-		tview.Escape(ch), name, tview.Escape(shortAddr(u.addr)+ch)))
+	u.title.SetText(fmt.Sprintf("[::b]tailirc[::-] %s  [%s]%s[-]  [%s]%s  Alt-Shift-C copy[-]",
+		tview.Escape(ch), u.theme.Self, name, u.theme.Dim, tview.Escape(shortAddr(u.addr)+ch)))
 }
 
 func shortAddr(addr string) string {
@@ -206,11 +210,11 @@ func (u *UI) show(ev ircclient.Event) {
 	ts := m.Time.Local().Format("15:04:05")
 	switch ev.Kind {
 	case ircclient.EventMessage:
-		color := "green"
+		color := u.theme.Other
 		if m.Nick == me {
-			color = "yellow"
+			color = u.theme.Self
 		}
-		fmt.Fprintf(u.messages, "[gray]%s[-] [%s]<%s>[-] %s\n", ts, color, m.Nick, tview.Escape(m.Text))
+		fmt.Fprintf(u.messages, "[%s]%s[-] [%s]<%s>[-] %s\n", u.theme.Dim, ts, color, m.Nick, tview.Escape(m.Text))
 	case ircclient.EventJoin:
 		if m.Nick != me {
 			u.system("%s joined", m.Nick)
