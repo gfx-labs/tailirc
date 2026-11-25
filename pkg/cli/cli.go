@@ -15,6 +15,7 @@ import (
 	"github.com/urfave/cli/v3"
 	"tailscale.com/types/logger"
 
+	"github.com/gfx-labs/tailirc/pkg/aliases"
 	"github.com/gfx-labs/tailirc/pkg/ircclient"
 	"github.com/gfx-labs/tailirc/pkg/ircd"
 	"github.com/gfx-labs/tailirc/pkg/tckeys"
@@ -81,6 +82,23 @@ func newCommand() *cli.Command {
 				ArgsUsage: "ADDR#CHANNEL [MESSAGE]",
 				Flags:     []cli.Flag{clientKey},
 				Action:    send,
+			},
+			{
+				Name:  "alias",
+				Usage: "name tailcat addresses so ALIAS#CHANNEL works in place of ADDR#CHANNEL",
+				Commands: []*cli.Command{
+					{
+						Name:      "add",
+						Usage:     "save an alias; --ephemeral keeps it only until logout or reboot",
+						ArgsUsage: "NAME ADDR",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{Name: "ephemeral", Aliases: []string{"e"}, Usage: "store in $XDG_RUNTIME_DIR instead of the config dir"},
+						},
+						Action: aliasAdd,
+					},
+					{Name: "list", Aliases: []string{"ls"}, Usage: "list aliases", Action: aliasList},
+					{Name: "rm", Usage: "remove an alias", ArgsUsage: "NAME", Action: aliasRemove},
+				},
 			},
 			{
 				Name:      "read",
@@ -194,13 +212,30 @@ func dialServer(ctx context.Context, cmd *cli.Command, addr string) (net.Conn, *
 }
 
 // splitTarget splits "ADDR#CHANNEL" into the tailcat address and "#CHANNEL".
-// Tailcat addresses are base64url, so they never contain '#'.
+// ADDR may be an alias. Tailcat addresses are base64url, so they never contain '#'.
 func splitTarget(arg string) (addr, channel string, err error) {
 	addr, name, ok := strings.Cut(arg, "#")
 	if !ok || addr == "" || name == "" {
-		return "", "", fmt.Errorf("expected ADDR#CHANNEL, got %q", arg)
+		return "", "", fmt.Errorf("expected ADDR#CHANNEL or ALIAS#CHANNEL, got %q", arg)
 	}
-	return addr, "#" + name, nil
+	addr, err = resolveAddr(addr)
+	return addr, "#" + name, err
+}
+
+// resolveAddr returns addr unchanged if it is a tailcat address, else looks it
+// up as an alias.
+func resolveAddr(addr string) (string, error) {
+	if strings.HasPrefix(addr, "tc") {
+		return addr, nil
+	}
+	resolved, ok, err := aliases.Lookup(addr)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("unknown alias %q; add it with: tailirc alias add %s tc...", addr, addr)
+	}
+	return resolved, nil
 }
 
 func registeredClient(ctx context.Context, cmd *cli.Command) (*ircclient.Client, string, func(), error) {
@@ -275,6 +310,10 @@ func connect(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("missing ADDR")
 	}
 	addr, _, _ = strings.Cut(addr, "#")
+	addr, err := resolveAddr(addr)
+	if err != nil {
+		return err
+	}
 	key, err := tckeys.LoadClientKey(cmd.String("key"))
 	if err != nil {
 		return err

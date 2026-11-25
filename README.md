@@ -43,6 +43,20 @@ tailirc read -n 5 'tcXXXX#secrets'
 
 `send` and `read` are IRC clients: `read` uses IRCv3 `CHATHISTORY LATEST`.
 
+### Aliases
+
+Name an address once and use `ALIAS#channel` anywhere `ADDR#channel` works:
+
+```sh
+tailirc alias add team tcXXXX            # saved in ~/.config/tailcat/irc-aliases
+tailirc alias add -e tmp tcYYYY          # ephemeral: $XDG_RUNTIME_DIR, gone on logout/reboot
+tailirc read team#secrets
+tailirc alias ls
+tailirc alias rm tmp
+```
+
+Ephemeral aliases take precedence over saved ones with the same name. Alias files are written 0600 because an address contains the server's pre-shared key.
+
 For a regular IRC client (weechat, irssi, ...):
 
 ```sh
@@ -57,6 +71,7 @@ The server supports `batch`, `draft/chathistory`, `echo-message`, `message-tags`
 - `pkg/cli`: commands (urfave/cli v3)
 - `pkg/ircd`: in-memory IRC server
 - `pkg/ircclient`: minimal client for `send`/`read`
+- `pkg/aliases`: saved and ephemeral address aliases
 - `pkg/tckeys`: tailcat key loading, allow lists, nicks
 
 `scripts/e2e.sh <binary>` runs a live check over real tailcat with throwaway keys.
