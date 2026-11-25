@@ -85,8 +85,11 @@ func ParseAllowKeys(text string, set *tailcat.KeySet) (int, error) {
 		}
 		for _, field := range strings.FieldsFunc(line, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\r' }) {
 			var k key.NodePublic
+			if strings.HasPrefix(field, "tc") {
+				return count, fmt.Errorf("%.12s... is a tailcat address, not a client key; the client should run `tailcat genkey --client --key=client-default` (or `tailcat printpub`) and share the nodekey:... it prints", field)
+			}
 			if err := k.UnmarshalText([]byte(field)); err != nil {
-				return count, fmt.Errorf("invalid allowed key %q: %w", field, err)
+				return count, fmt.Errorf("invalid allowed key %.20q, want nodekey:<64 hex>: %w", field, err)
 			}
 			set.Add(k)
 			count++
