@@ -21,8 +21,18 @@ import (
 type Message struct {
 	Time   time.Time
 	Nick   string
+	ID     string // the sender's IRC username, the key's hex prefix on tailirc
 	Target string
 	Text   string
+}
+
+// source fills Nick and ID from msg's nick!user@host source.
+func source(msg ircmsg.Message) (nick, id string) {
+	nuh, err := msg.NUH()
+	if err != nil {
+		return msg.Nick(), ""
+	}
+	return nuh.Name, nuh.User
 }
 
 // Client is a registered IRC connection.
@@ -31,6 +41,7 @@ type Client struct {
 	reader       *bufio.Reader
 	writeMu      sync.Mutex
 	Nick         string
+	ID           string
 	HistoryLimit int
 }
 
@@ -66,6 +77,12 @@ func Register(conn net.Conn) (*Client, error) {
 			}
 		case "001":
 			c.Nick = param(msg, 0)
+			// The welcome text ends with our nick!id@host source.
+			if f := strings.Fields(param(msg, 1)); len(f) > 0 {
+				if nuh, err := ircmsg.ParseNUH(f[len(f)-1]); err == nil {
+					c.ID = nuh.User
+				}
+			}
 		case "005":
 			for _, token := range msg.Params[1:] {
 				if v, ok := strings.CutPrefix(token, "CHATHISTORY="); ok {
@@ -129,7 +146,8 @@ func (c *Client) History(target string, limit int) ([]Message, error) {
 			if _, b := msg.GetTag("batch"); batchID == "" || b != batchID {
 				continue
 			}
-			m := Message{Nick: msg.Nick(), Target: param(msg, 0), Text: param(msg, 1)}
+			m := Message{Target: param(msg, 0), Text: param(msg, 1)}
+			m.Nick, m.ID = source(msg)
 			if ok, ts := msg.GetTag("time"); ok {
 				m.Time, _ = time.Parse(time.RFC3339Nano, ts)
 			}

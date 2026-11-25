@@ -52,7 +52,8 @@ func (c *Client) Listen(handle func(Event)) error {
 		if err != nil {
 			return err
 		}
-		ev := Message{Nick: msg.Nick(), Target: param(msg, 0), Text: param(msg, 1), Time: time.Now()}
+		ev := Message{Target: param(msg, 0), Text: param(msg, 1), Time: time.Now()}
+		ev.Nick, ev.ID = source(msg)
 		if ok, ts := msg.GetTag("time"); ok {
 			if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
 				ev.Time = t

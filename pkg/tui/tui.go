@@ -23,9 +23,9 @@ type Config struct {
 	Info string
 	// Addr is the server's tailcat address. Alt-Shift-C copies Addr#channel.
 	Addr string
-	// DisplayNick maps a nick from the server to the name shown. Nil shows
-	// nicks unchanged.
-	DisplayNick func(string) string
+	// DisplayNick formats a peer from its server nick and ID. Nil shows
+	// nick!id.
+	DisplayNick func(nick, id string) string
 }
 
 // UI is a running terminal session. Logf may be used from any goroutine,
@@ -36,7 +36,7 @@ type UI struct {
 	input    *tview.InputField
 	title    *tview.TextView
 	theme    Theme
-	display  func(string) string
+	display  func(nick, id string) string
 	addr     string
 	screen   tcell.Screen
 
@@ -111,20 +111,26 @@ func (u *UI) system(format string, args ...any) {
 // setTitle updates the title bar. Call only from the UI goroutine or before Run.
 func (u *UI) setTitle() {
 	u.mu.Lock()
-	name, ch := "", u.channel
+	name, ch, id := "", u.channel, ""
 	if u.client != nil {
-		name = u.client.Nick
+		name, id = u.client.Nick, u.client.ID
 	}
 	u.mu.Unlock()
 	u.title.SetText(fmt.Sprintf("[::b]tailirc[::-] %s  [%s]%s[-]  [%s]%s  Alt-Shift-C copy[-]",
-		tview.Escape(ch), u.theme.Self, u.nick(name), u.theme.Dim, tview.Escape(shortAddr(u.addr)+ch)))
+		tview.Escape(ch), u.theme.Self, u.nick(name, id), u.theme.Dim, tview.Escape(shortAddr(u.addr)+ch)))
 }
 
-func (u *UI) nick(n string) string {
-	if u.display == nil || n == "" {
-		return n
+func (u *UI) nick(nick, id string) string {
+	if nick == "" && id == "" {
+		return ""
 	}
-	return u.display(n)
+	if u.display != nil {
+		return u.display(nick, id)
+	}
+	if id == "" || nick == id {
+		return nick
+	}
+	return nick + "!" + id
 }
 
 func shortAddr(addr string) string {
@@ -141,7 +147,7 @@ func (u *UI) copyTarget() {
 		return
 	}
 	u.mu.Lock()
-	target := u.addr + u.channel
+	target := "`" + u.addr + u.channel + "`"
 	u.mu.Unlock()
 	if err := copyToClipboard(u.screen, target); err != nil {
 		u.system("copy failed: %v", err)
@@ -209,12 +215,12 @@ func (u *UI) show(ev ircclient.Event) {
 	u.mu.Lock()
 	current, me := u.channel, ""
 	if u.client != nil {
-		me = u.client.Nick
+		me = u.client.ID
 	}
 	u.mu.Unlock()
 	m := ev.Message
-	isMe := m.Nick == me
-	m.Nick = u.nick(m.Nick)
+	isMe := m.ID != "" && m.ID == me
+	m.Nick = u.nick(m.Nick, m.ID)
 	if !strings.EqualFold(m.Target, current) && ev.Kind != ircclient.EventQuit && ev.Kind != ircclient.EventError {
 		if ev.Kind == ircclient.EventMessage && !ev.History {
 			u.system("new message in %s from %s", m.Target, m.Nick)

@@ -78,32 +78,43 @@ func LoadClientKey(name string) (key.NodePrivate, error) {
 // AllowList is the set of client keys allowed to connect, with optional nicks
 // given as name@key.
 type AllowList struct {
-	Keys  tailcat.KeySet
-	names map[key.NodePublic]string
-	nicks map[string]key.NodePublic
-	// prefixNames maps a key-derived nick (hex prefix) to a display name.
-	prefixNames map[string]string
+	Keys tailcat.KeySet
+	// names maps a key's hex prefix (its ID) to a name. Names may repeat,
+	// since the ID is always shown next to them.
+	names map[string]string
 }
 
-// Nick returns the configured name for k, or the key-derived nick.
-func (a *AllowList) Nick(k key.NodePublic) string {
-	if n, ok := a.names[k]; ok {
-		return n
-	}
-	return a.Display(Nick(k))
-}
-
-// Display maps a nick seen on the wire to the local name for it: a
-// name@hexprefix entry, or a name@key entry whose key has that prefix.
-// Unknown nicks are returned unchanged.
-func (a *AllowList) Display(nick string) string {
+// Name returns the configured name for the client with hex id, or "".
+func (a *AllowList) Name(id string) string {
 	if a == nil {
+		return ""
+	}
+	return a.names[strings.ToLower(id)]
+}
+
+// Identity returns the nick and ID the server gives key k: the configured
+// name, else the hex prefix, and the hex prefix as ID.
+func (a *AllowList) Identity(k key.NodePublic) (nick, id string) {
+	id = Nick(k)
+	if n := a.Name(id); n != "" {
+		return n, id
+	}
+	return id, id
+}
+
+// Display formats a peer for showing: "name!id". A local name for id takes
+// precedence over the nick the server sent. With no name, only id is shown.
+func (a *AllowList) Display(nick, id string) string {
+	if n := a.Name(id); n != "" {
+		nick = n
+	}
+	if id == "" {
 		return nick
 	}
-	if n, ok := a.prefixNames[strings.ToLower(nick)]; ok {
-		return n
+	if nick == "" || strings.EqualFold(nick, id) {
+		return id
 	}
-	return nick
+	return nick + "!" + id
 }
 
 // Parse adds entries separated by commas, spaces or newlines. Each entry is a
@@ -124,7 +135,7 @@ func (a *AllowList) Parse(text string) (int, error) {
 				keyText = field
 			}
 			if named && isHexPrefix(keyText) {
-				if err := a.setPrefixName(name, strings.ToLower(keyText)); err != nil {
+				if err := a.setName(name, strings.ToLower(keyText)); err != nil {
 					return count, err
 				}
 				continue
@@ -134,7 +145,7 @@ func (a *AllowList) Parse(text string) (int, error) {
 				return count, err
 			}
 			if named {
-				if err := a.setName(name, k); err != nil {
+				if err := a.setName(name, Nick(k)); err != nil {
 					return count, err
 				}
 			}
@@ -149,49 +160,25 @@ func isHexPrefix(s string) bool {
 	return len(s) == NickLength && strings.Trim(strings.ToLower(s), "0123456789abcdef") == ""
 }
 
-func (a *AllowList) setPrefixName(name, prefix string) error {
-	if !validNick(name) {
-		return fmt.Errorf("invalid name %q: use letters, digits, - or _, up to 32 characters", name)
-	}
-	if a.prefixNames == nil {
-		a.prefixNames = map[string]string{}
-	}
-	if old, ok := a.prefixNames[prefix]; ok && !strings.EqualFold(old, name) {
-		return fmt.Errorf("%s has two names: %q and %q", prefix, old, name)
-	}
-	for p, n := range a.prefixNames {
-		if p != prefix && strings.EqualFold(n, name) {
-			return fmt.Errorf("name %q is given to both %s and %s", name, p, prefix)
-		}
-	}
-	a.prefixNames[prefix] = name
-	return nil
-}
-
-func (a *AllowList) setName(name string, k key.NodePublic) error {
+func (a *AllowList) setName(name, id string) error {
 	if !validNick(name) {
 		return fmt.Errorf("invalid name %q: use letters, digits, - or _, up to 32 characters", name)
 	}
 	if a.names == nil {
-		a.names = map[key.NodePublic]string{}
-		a.nicks = map[string]key.NodePublic{}
+		a.names = map[string]string{}
 	}
-	folded := strings.ToLower(name)
-	if other, ok := a.nicks[folded]; ok && other != k {
-		return fmt.Errorf("name %q is given to two different keys", name)
+	if old, ok := a.names[id]; ok && old != name {
+		return fmt.Errorf("%s has two names: %q and %q", id, old, name)
 	}
-	if old, ok := a.names[k]; ok && !strings.EqualFold(old, name) {
-		return fmt.Errorf("key %s has two names: %q and %q", Nick(k), old, name)
-	}
-	a.names[k] = name
-	a.nicks[folded] = k
-	// Clients only see the hex prefix of an unnamed peer, so a name@key entry
-	// also renames that prefix when displayed.
-	return a.setPrefixName(name, Nick(k))
+	a.names[id] = name
+	return nil
 }
 
-// validNick accepts names safe to use as IRC nicks. A name that is 8 hex
-// characters could collide with a key-derived nick, so it is rejected.
+// HostNick is the name of the person running serve --tui. Its ID is the
+// server key's hex prefix.
+const HostNick = "host"
+
+// validNick accepts names safe to use as IRC nicks.
 func validNick(name string) bool {
 	if name == "" || len(name) > 32 || name[0] == '-' || (name[0] >= '0' && name[0] <= '9') {
 		return false
@@ -201,7 +188,7 @@ func validNick(name string) bool {
 			return false
 		}
 	}
-	return !isHexPrefix(name)
+	return true
 }
 
 // LoadAllowFile parses path into a. A missing file is not an error when

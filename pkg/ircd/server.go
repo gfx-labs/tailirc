@@ -46,9 +46,17 @@ type Config struct {
 	Logf func(format string, args ...any)
 }
 
-// Identify returns the fixed nick for an accepted connection, or ok=false to
+// Identity says who a connection is. ID is unique per client (the key's hex
+// prefix) and is the IRC username, so sources read nick!id@tailirc. Nick is
+// the display name and may repeat across clients.
+type Identity struct {
+	Nick string
+	ID   string
+}
+
+// Identify returns the identity of an accepted connection, or ok=false to
 // reject it.
-type Identify func(c net.Conn) (nick string, ok bool)
+type Identify func(c net.Conn) (id Identity, ok bool)
 
 // Server holds all channels and connected clients in memory.
 type Server struct {
@@ -57,7 +65,7 @@ type Server struct {
 	mu       sync.Mutex
 	nextID   uint64
 	channels map[string]*channel // keyed by casefolded name
-	clients  map[string]*client  // keyed by casefolded nick
+	clients  map[string]*client  // keyed by casefolded ID
 }
 
 type channel struct {
@@ -70,6 +78,7 @@ type client struct {
 	server *Server
 	conn   net.Conn
 	nick   string
+	id     string
 	out    chan []byte
 	done   chan struct{}
 	once   sync.Once
@@ -112,35 +121,43 @@ func (s *Server) Serve(ctx context.Context, l net.Listener, identify Identify) e
 			}
 			return err
 		}
-		nick, ok := identify(c)
+		id, ok := identify(c)
 		if !ok {
 			s.config.Logf("rejecting unidentified connection from %v", c.RemoteAddr())
 			c.Close()
 			continue
 		}
-		go s.handle(c, nick)
+		go s.handle(c, id)
 	}
 }
 
 // ServeConn serves one already identified connection, for example the host's
 // own client over net.Pipe. It returns when the connection closes.
-func (s *Server) ServeConn(c net.Conn, nick string) { s.handle(c, nick) }
+func (s *Server) ServeConn(c net.Conn, id Identity) { s.handle(c, id) }
 
-func (s *Server) handle(conn net.Conn, nick string) {
+func (s *Server) handle(conn net.Conn, id Identity) {
 	cl := &client{
 		server: s,
 		conn:   conn,
-		nick:   nick,
+		nick:   id.Nick,
+		id:     id.ID,
 		out:    make(chan []byte, clientQueueDepth),
 		done:   make(chan struct{}),
 		caps:   map[string]bool{},
 	}
-	s.config.Logf("%s connected from %v", nick, conn.RemoteAddr())
+	s.config.Logf("%s connected from %v", cl.display(), conn.RemoteAddr())
 	go cl.writeLoop()
 	cl.readLoop()
 	cl.close()
 	s.removeClient(cl, "Connection closed")
-	s.config.Logf("%s disconnected", nick)
+	s.config.Logf("%s disconnected", cl.display())
+}
+
+func (c *client) display() string {
+	if c.nick == c.id {
+		return c.id
+	}
+	return c.nick + "!" + c.id
 }
 
 func (c *client) writeLoop() {
@@ -210,7 +227,7 @@ func (c *client) send(msg ircmsg.Message) {
 }
 
 func (c *client) prefix() string {
-	return c.nick + "!" + c.nick + "@" + ServerName
+	return c.nick + "!" + c.id + "@" + ServerName
 }
 
 func (c *client) reply(command string, params ...string) {
@@ -389,7 +406,7 @@ func (c *client) maybeRegister() {
 func (s *Server) addClient(c *client) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := fold(c.nick)
+	key := fold(c.id)
 	if old := s.clients[key]; old != nil {
 		// Same key reconnecting: replace the stale session.
 		s.removeLocked(old, "Reconnected")
@@ -402,7 +419,7 @@ func (s *Server) addClient(c *client) error {
 func (s *Server) removeClient(c *client, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.clients[fold(c.nick)] == c {
+	if s.clients[fold(c.id)] == c {
 		s.removeLocked(c, reason)
 	}
 }
@@ -422,7 +439,7 @@ func (s *Server) removeLocked(c *client, reason string) {
 			}
 		}
 	}
-	delete(s.clients, fold(c.nick))
+	delete(s.clients, fold(c.id))
 }
 
 func (s *Server) join(c *client, name string) {
@@ -581,7 +598,7 @@ func (s *Server) channelLocked(name string) *channel {
 func (ch *channel) nicks() []string {
 	var nicks []string
 	for m := range ch.members {
-		nicks = append(nicks, m.nick)
+		nicks = append(nicks, m.display())
 	}
 	slices.Sort(nicks)
 	return nicks

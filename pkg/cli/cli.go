@@ -205,10 +205,10 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	hostNick := tckeys.Nick(info.ServerPublic.NodePublic)
+	host := ircd.Identity{Nick: tckeys.HostNick, ID: tckeys.Nick(info.ServerPublic.NodePublic)}
 	err = ui.Run(ctx, func(context.Context) (net.Conn, error) {
 		hostSide, uiSide := net.Pipe()
-		go irc.ServeConn(hostSide, hostNick)
+		go irc.ServeConn(hostSide, host)
 		return uiSide, nil
 	})
 	cancel()
@@ -219,12 +219,13 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 }
 
 func peerNick(server *tailcat.Server, allow *tckeys.AllowList) ircd.Identify {
-	return func(c net.Conn) (string, bool) {
+	return func(c net.Conn) (ircd.Identity, bool) {
 		k, ok := server.PeerKey(c.RemoteAddr())
 		if !ok {
-			return "", false
+			return ircd.Identity{}, false
 		}
-		return allow.Nick(k), true
+		nick, id := allow.Identity(k)
+		return ircd.Identity{Nick: nick, ID: id}, true
 	}
 }
 
@@ -326,7 +327,7 @@ func read(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	for _, m := range messages {
-		fmt.Printf("%s <%s> %s\n", m.Time.Local().Format("2006-01-02 15:04:05"), names.Display(m.Nick), m.Text)
+		fmt.Printf("%s <%s> %s\n", m.Time.Local().Format("2006-01-02 15:04:05"), names.Display(m.Nick, m.ID), m.Text)
 	}
 	return irc.Quit()
 }

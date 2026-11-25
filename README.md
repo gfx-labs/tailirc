@@ -19,7 +19,7 @@ Each participant creates a client key once and sends the printed `nodekey:...` t
 tailcat genkey --client --key=client-default
 ```
 
-Nicks are the name given in the host's allowlist (see below), else the first 8 hex characters of the client's public key. Clients cannot change them.
+Everyone is identified by the first 8 hex characters of their public key, shown as `name!hex` when a name is set, else just `hex`. Names come from the host's allowlist (see below). Clients cannot change them. The host in `serve --tui` shows as `host!hex` with its server key.
 
 ## Host
 
@@ -27,11 +27,11 @@ Put allowed keys in `~/.config/tailcat/allowed-ircs`, one per line. `#` starts a
 
 ```
 # team
-alice@nodekey:aaa...  # named: shows as alice
-nodekey:bbb...        # unnamed: shows as the first 8 hex of the key
+alice@nodekey:aaa...  # named: shows as alice!aaaaaaaa
+nodekey:bbb...        # unnamed: shows as bbbbbbbb
 ```
 
-Names use letters, digits, `-` and `_`, up to 32 characters, must not start with a digit or `-`, and must be unique.
+Names use letters, digits, `-` and `_`, up to 32 characters, and must not start with a digit or `-`. Two keys may share a name, since the hex is always shown next to it.
 
 Clients read the same file to show names locally. `tailirc tui` and `tailirc read` use `~/.config/tailcat/allowed-ircs` if it exists, or `--names FILE`. There, `name@hexprefix` renames the 8-hex nick the server shows for an unnamed key, without needing the full key:
 
@@ -50,6 +50,8 @@ tailirc serve --allow nodekey:ccc...           # adds to the file's keys
 Uses the saved tailcat `default` key if present (stable address), else an ephemeral one. `--key=new` forces an ephemeral address. `--history` sets messages kept per channel (default 1000).
 
 `tailirc serve --tui` runs the server and puts a chat session in the foreground, so the host sees messages as they arrive. `--channel` picks the channel it opens (default `#general`).
+
+Alt-Shift-C copies the address and channel wrapped in backticks, ready to paste into chat.
 
 ## Clients
 
