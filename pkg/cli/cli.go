@@ -81,7 +81,7 @@ func newCommand() *cli.Command {
 				ArgsUsage: "ADDR",
 				Flags: []cli.Flag{
 					clientKey,
-					&cli.StringFlag{Name: "listen", Value: "127.0.0.1:6667", Usage: "local address to listen on"},
+					&cli.StringFlag{Name: "listen", Value: "127.0.0.1:6667", Usage: "local address to listen on: host:port, or unix:PATH for a unix socket"},
 				},
 				Action: connect,
 			},
@@ -340,7 +340,7 @@ func connect(ctx context.Context, cmd *cli.Command) error {
 	if _, err := client.Ping(ctx); err != nil {
 		return fmt.Errorf("reach server (is your key %s on its allow list?): %w", key.Public(), err)
 	}
-	listener, err := net.Listen("tcp", cmd.String("listen"))
+	listener, err := listenLocal(cmd.String("listen"))
 	if err != nil {
 		return err
 	}

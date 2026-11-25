@@ -57,7 +57,10 @@ For a regular IRC client (weechat, irssi, ...):
 
 ```sh
 tailirc connect tcXXXX                 # listens on 127.0.0.1:6667
+tailirc connect --listen unix:$XDG_RUNTIME_DIR/tailirc.sock tcXXXX
 ```
+
+The unix socket is created 0600 and removed on exit. A stale socket from a previous run is replaced.
 
 The server supports `batch`, `draft/chathistory`, `echo-message`, `message-tags` and `server-time`. It does not replay history on JOIN; clients request it with `CHATHISTORY`.
 
@@ -70,4 +73,4 @@ The server supports `batch`, `draft/chathistory`, `echo-message`, `message-tags`
 - `pkg/tui`: tview chat session
 - `pkg/tckeys`: tailcat key loading, allow lists, nicks
 
-`scripts/e2e.sh <binary>` and `scripts/e2e-tui.sh <binary>` run live checks over real tailcat with throwaway keys.
+`scripts/e2e.sh`, `scripts/e2e-tui.sh` and `scripts/e2e-unix.sh` (each takes the binary path) run live checks over real tailcat with throwaway keys.
