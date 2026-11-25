@@ -1,5 +1,14 @@
 # tailirc
 
+```
+a: "i want a cli for secure encrypted one time sends, have one? can tailscale do it?"
+b: "cli to share secrets built on tailcat would be banger"
+a: "https://github.com/tailscale/tailcatchat exists but it's a bit heavy, has some browser stuff"
+b: "i just want cli"
+a: "uh.... what if we just served an irc server on it?"
+b: "tailcatirc lmao"
+```
+
 An IRC server hosted over [tailcat](https://github.com/tailscale/tailcat). One person serves, allowed clients connect by their tailcat client key. Messages live only in the host's memory and are gone when it stops.
 
 ## Keys
