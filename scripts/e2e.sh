@@ -16,13 +16,9 @@ for _ in $(seq 30); do grep -q '^address' srv.log && break; sleep 1; done
 cat srv.log
 ADDR=$(awk '/^address/{print $2}' srv.log)
 "$bin" send "$ADDR#secrets" "hello from A"; echo "send=$?"
-"$bin" alias add team "$ADDR"
-XDG_RUNTIME_DIR="$work/run" "$bin" alias add -e tmp "$ADDR#ignored"
-XDG_RUNTIME_DIR="$work/run" "$bin" alias ls
-XDG_RUNTIME_DIR="$work/run" "$bin" send tmp#secrets "via ephemeral alias"; echo "alias-send=$?"
 printf 'line1\nline2\n' | "$bin" send --key=bob "$ADDR#secrets"; echo "send2=$?"
 "$bin" send "$ADDR#other" "other chan"
-"$bin" read --key=bob team#secrets; echo "read=$?"
+"$bin" read --key=bob "$ADDR#secrets"; echo "read=$?"
 "$bin" read -n 1 "$ADDR#secrets"
 "$bin" read "$ADDR#other"
 timeout 45 "$bin" read --key=eve "$ADDR#secrets"; echo "eve=$?"

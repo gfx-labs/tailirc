@@ -15,10 +15,10 @@ import (
 	"github.com/urfave/cli/v3"
 	"tailscale.com/types/logger"
 
-	"github.com/gfx-labs/tailirc/pkg/aliases"
 	"github.com/gfx-labs/tailirc/pkg/ircclient"
 	"github.com/gfx-labs/tailirc/pkg/ircd"
 	"github.com/gfx-labs/tailirc/pkg/tckeys"
+	"github.com/gfx-labs/tailirc/pkg/tui"
 )
 
 // IRCPort is the port the IRC server listens on inside the tailcat tunnel.
@@ -63,6 +63,15 @@ func newCommand() *cli.Command {
 						Value: 1000,
 						Usage: "messages kept in memory per channel",
 					},
+					&cli.BoolFlag{
+						Name:  "tui",
+						Usage: "run a chat session in the foreground as the host",
+					},
+					&cli.StringFlag{
+						Name:  "channel",
+						Value: "#general",
+						Usage: "channel the --tui session opens",
+					},
 				},
 				Action: serve,
 			},
@@ -84,21 +93,11 @@ func newCommand() *cli.Command {
 				Action:    send,
 			},
 			{
-				Name:  "alias",
-				Usage: "name tailcat addresses so ALIAS#CHANNEL works in place of ADDR#CHANNEL",
-				Commands: []*cli.Command{
-					{
-						Name:      "add",
-						Usage:     "save an alias; --ephemeral keeps it only until logout or reboot",
-						ArgsUsage: "NAME ADDR",
-						Flags: []cli.Flag{
-							&cli.BoolFlag{Name: "ephemeral", Aliases: []string{"e"}, Usage: "store in $XDG_RUNTIME_DIR instead of the config dir"},
-						},
-						Action: aliasAdd,
-					},
-					{Name: "list", Aliases: []string{"ls"}, Usage: "list aliases", Action: aliasList},
-					{Name: "rm", Usage: "remove an alias", ArgsUsage: "NAME", Action: aliasRemove},
-				},
+				Name:      "tui",
+				Usage:     "interactive chat session; type /join #chan to switch channels",
+				ArgsUsage: "ADDR[#CHANNEL]",
+				Flags:     []cli.Flag{clientKey},
+				Action:    runTUI,
 			},
 			{
 				Name:      "read",
@@ -180,19 +179,58 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("start tailcat: %w", err)
 	}
 	defer server.Close()
+	addr := server.TailcatAddr()
 
-	fmt.Fprintf(os.Stderr, "tailirc serving %d allowed keys, messages kept in memory only\n", allowed)
-	fmt.Fprintf(os.Stderr, "address: %s\n", server.TailcatAddr())
-	fmt.Fprintf(os.Stderr, "example: tailirc read '%s#general'\n", server.TailcatAddr())
+	if !cmd.Bool("tui") {
+		fmt.Fprintf(os.Stderr, "tailirc serving %d allowed keys, messages kept in memory only\n", allowed)
+		fmt.Fprintf(os.Stderr, "address: %s\n", addr)
+		fmt.Fprintf(os.Stderr, "example: tailirc tui '%s#general'\n", addr)
+		irc := ircd.New(ircd.Config{HistoryLimit: int(cmd.Int("history"))})
+		return irc.Serve(ctx, listener, peerNick(server))
+	}
 
-	irc := ircd.New(ircd.Config{HistoryLimit: int(cmd.Int("history"))})
-	return irc.Serve(ctx, listener, func(c net.Conn) (string, bool) {
+	ui := tui.New(tui.Config{
+		Channel: normalizeChannel(cmd.String("channel")),
+		Info:    fmt.Sprintf("hosting for %d allowed keys. share: tailirc tui '%s#general'", allowed, addr),
+	})
+	irc := ircd.New(ircd.Config{HistoryLimit: int(cmd.Int("history")), Logf: ui.Logf})
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- irc.Serve(ctx, listener, peerNick(server)) }()
+
+	info, err := tailcat.ParseAddr(addr)
+	if err != nil {
+		return err
+	}
+	hostNick := tckeys.Nick(info.ServerPublic.NodePublic)
+	err = ui.Run(ctx, func(context.Context) (net.Conn, error) {
+		hostSide, uiSide := net.Pipe()
+		go irc.ServeConn(hostSide, hostNick)
+		return uiSide, nil
+	})
+	cancel()
+	if err != nil {
+		return err
+	}
+	return <-serveErr
+}
+
+func peerNick(server *tailcat.Server) ircd.Identify {
+	return func(c net.Conn) (string, bool) {
 		k, ok := server.PeerKey(c.RemoteAddr())
 		if !ok {
 			return "", false
 		}
 		return tckeys.Nick(k), true
-	})
+	}
+}
+
+func normalizeChannel(name string) string {
+	if name != "" && !strings.HasPrefix(name, "#") {
+		return "#" + name
+	}
+	return name
 }
 
 func dialServer(ctx context.Context, cmd *cli.Command, addr string) (net.Conn, *tailcat.Client, error) {
@@ -212,30 +250,13 @@ func dialServer(ctx context.Context, cmd *cli.Command, addr string) (net.Conn, *
 }
 
 // splitTarget splits "ADDR#CHANNEL" into the tailcat address and "#CHANNEL".
-// ADDR may be an alias. Tailcat addresses are base64url, so they never contain '#'.
+// Tailcat addresses are base64url, so they never contain '#'.
 func splitTarget(arg string) (addr, channel string, err error) {
 	addr, name, ok := strings.Cut(arg, "#")
 	if !ok || addr == "" || name == "" {
-		return "", "", fmt.Errorf("expected ADDR#CHANNEL or ALIAS#CHANNEL, got %q", arg)
+		return "", "", fmt.Errorf("expected ADDR#CHANNEL, got %q", arg)
 	}
-	addr, err = resolveAddr(addr)
-	return addr, "#" + name, err
-}
-
-// resolveAddr returns addr unchanged if it is a tailcat address, else looks it
-// up as an alias.
-func resolveAddr(addr string) (string, error) {
-	if strings.HasPrefix(addr, "tc") {
-		return addr, nil
-	}
-	resolved, ok, err := aliases.Lookup(addr)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("unknown alias %q; add it with: tailirc alias add %s tc...", addr, addr)
-	}
-	return resolved, nil
+	return addr, "#" + name, nil
 }
 
 func registeredClient(ctx context.Context, cmd *cli.Command) (*ircclient.Client, string, func(), error) {
@@ -310,10 +331,6 @@ func connect(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("missing ADDR")
 	}
 	addr, _, _ = strings.Cut(addr, "#")
-	addr, err := resolveAddr(addr)
-	if err != nil {
-		return err
-	}
 	key, err := tckeys.LoadClientKey(cmd.String("key"))
 	if err != nil {
 		return err

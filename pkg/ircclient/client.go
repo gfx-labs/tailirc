@@ -11,6 +11,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ergochat/irc-go/ircmsg"
@@ -28,6 +29,7 @@ type Message struct {
 type Client struct {
 	conn         net.Conn
 	reader       *bufio.Reader
+	writeMu      sync.Mutex
 	Nick         string
 	HistoryLimit int
 }
@@ -39,7 +41,7 @@ func Register(conn net.Conn) (*Client, error) {
 	c := &Client{conn: conn, reader: bufio.NewReader(conn)}
 	for _, line := range []string{
 		"CAP LS 302",
-		"CAP REQ :batch draft/chathistory message-tags server-time",
+		"CAP REQ :batch draft/chathistory echo-message message-tags server-time",
 		"NICK tailirc",
 		"USER tailirc 0 * :tailirc",
 	} {
@@ -155,6 +157,8 @@ func (c *Client) Quit() error {
 }
 
 func (c *Client) writeLine(line string) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.conn.SetWriteDeadline(time.Now().Add(readTimeout))
 	_, err := io.WriteString(c.conn, line+"\r\n")
 	return err

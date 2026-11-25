@@ -30,9 +30,19 @@ tailirc serve --allow nodekey:ccc...           # adds to the file's keys
 
 Uses the saved tailcat `default` key if present (stable address), else an ephemeral one. `--key=new` forces an ephemeral address. `--history` sets messages kept per channel (default 1000).
 
+`tailirc serve --tui` runs the server and puts a chat session in the foreground, so the host sees messages as they arrive. `--channel` picks the channel it opens (default `#general`).
+
 ## Clients
 
 Targets are `ADDR#channel`. Channels are created on first use.
+
+```sh
+tailirc tui 'tcXXXX#secrets'           # interactive session, replays the channel's history
+```
+
+In the TUI, type to send, `/join #other` to switch channels, `/quit` to exit, PgUp/PgDn to scroll.
+
+One-shot commands:
 
 ```sh
 tailirc send 'tcXXXX#secrets' 'the password is hunter2'
@@ -41,21 +51,7 @@ tailirc read 'tcXXXX#secrets'          # whole buffer
 tailirc read -n 5 'tcXXXX#secrets'
 ```
 
-`send` and `read` are IRC clients: `read` uses IRCv3 `CHATHISTORY LATEST`.
-
-### Aliases
-
-Name an address once and use `ALIAS#channel` anywhere `ADDR#channel` works:
-
-```sh
-tailirc alias add team tcXXXX            # saved in ~/.config/tailcat/irc-aliases
-tailirc alias add -e tmp tcYYYY          # ephemeral: $XDG_RUNTIME_DIR, gone on logout/reboot
-tailirc read team#secrets
-tailirc alias ls
-tailirc alias rm tmp
-```
-
-Ephemeral aliases take precedence over saved ones with the same name. Alias files are written 0600 because an address contains the server's pre-shared key.
+All clients use IRCv3 `CHATHISTORY` to read the buffer.
 
 For a regular IRC client (weechat, irssi, ...):
 
@@ -70,8 +66,8 @@ The server supports `batch`, `draft/chathistory`, `echo-message`, `message-tags`
 - `cmd/tailirc`: entry point
 - `pkg/cli`: commands (urfave/cli v3)
 - `pkg/ircd`: in-memory IRC server
-- `pkg/ircclient`: minimal client for `send`/`read`
-- `pkg/aliases`: saved and ephemeral address aliases
+- `pkg/ircclient`: minimal client for `send`, `read` and the TUI
+- `pkg/tui`: tview chat session
 - `pkg/tckeys`: tailcat key loading, allow lists, nicks
 
-`scripts/e2e.sh <binary>` runs a live check over real tailcat with throwaway keys.
+`scripts/e2e.sh <binary>` and `scripts/e2e-tui.sh <binary>` run live checks over real tailcat with throwaway keys.

@@ -122,6 +122,10 @@ func (s *Server) Serve(ctx context.Context, l net.Listener, identify Identify) e
 	}
 }
 
+// ServeConn serves one already identified connection, for example the host's
+// own client over net.Pipe. It returns when the connection closes.
+func (s *Server) ServeConn(c net.Conn, nick string) { s.handle(c, nick) }
+
 func (s *Server) handle(conn net.Conn, nick string) {
 	cl := &client{
 		server: s,
