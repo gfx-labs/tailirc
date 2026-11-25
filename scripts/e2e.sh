@@ -9,7 +9,7 @@ gen() { tailcat genkey --client --key="$1" 2>&1 | grep -o 'nodekey:[0-9a-f]*' | 
 A=$(gen client-default); B=$(gen bob); gen eve >/dev/null
 echo "A=$A B=$B"
 mkdir -p cfg/tailcat
-printf '# team keys\n%s  # alice\n\n  # bob below\n%s\n' "$A" "$B" >cfg/tailcat/allowed-ircs
+printf '# team keys\nalice@%s  # alice\n\n  # bob below\n%s\n' "$A" "$B" >cfg/tailcat/allowed-ircs
 "$bin" serve --key=new >srv.log 2>&1 &
 srv=$!
 for _ in $(seq 30); do grep -q '^address' srv.log && break; sleep 1; done

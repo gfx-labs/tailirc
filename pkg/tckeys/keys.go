@@ -75,25 +75,85 @@ func LoadClientKey(name string) (key.NodePrivate, error) {
 	return k.Private, nil
 }
 
-// ParseAllowKeys parses allowed keys separated by commas, spaces or newlines.
-// Each entry is a nodekey:... public key, or a tailcat address whose server
-// public key is used. # starts a comment.
-func ParseAllowKeys(text string, set *tailcat.KeySet) (int, error) {
+// AllowList is the set of client keys allowed to connect, with optional nicks
+// given as name@key.
+type AllowList struct {
+	Keys  tailcat.KeySet
+	names map[key.NodePublic]string
+	nicks map[string]key.NodePublic
+}
+
+// Nick returns the configured name for k, or the key-derived nick.
+func (a *AllowList) Nick(k key.NodePublic) string {
+	if n, ok := a.names[k]; ok {
+		return n
+	}
+	return Nick(k)
+}
+
+// Parse adds entries separated by commas, spaces or newlines. Each entry is a
+// nodekey:... public key or a tailcat address (whose server key is used),
+// optionally prefixed with "name@" to set that client's nick. # starts a
+// comment.
+func (a *AllowList) Parse(text string) (int, error) {
 	count := 0
 	for _, line := range strings.Split(text, "\n") {
 		if i := strings.IndexByte(line, '#'); i >= 0 {
 			line = line[:i]
 		}
 		for _, field := range strings.FieldsFunc(line, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\r' }) {
-			k, err := parseAllowKey(field)
+			name, keyText, named := strings.Cut(field, "@")
+			if !named {
+				keyText = field
+			}
+			k, err := parseAllowKey(keyText)
 			if err != nil {
 				return count, err
 			}
-			set.Add(k)
+			if named {
+				if err := a.setName(name, k); err != nil {
+					return count, err
+				}
+			}
+			a.Keys.Add(k)
 			count++
 		}
 	}
 	return count, nil
+}
+
+func (a *AllowList) setName(name string, k key.NodePublic) error {
+	if !validNick(name) {
+		return fmt.Errorf("invalid name %q: use letters, digits, - or _, up to 32 characters", name)
+	}
+	if a.names == nil {
+		a.names = map[key.NodePublic]string{}
+		a.nicks = map[string]key.NodePublic{}
+	}
+	folded := strings.ToLower(name)
+	if other, ok := a.nicks[folded]; ok && other != k {
+		return fmt.Errorf("name %q is given to two different keys", name)
+	}
+	if old, ok := a.names[k]; ok && !strings.EqualFold(old, name) {
+		return fmt.Errorf("key %s has two names: %q and %q", Nick(k), old, name)
+	}
+	a.names[k] = name
+	a.nicks[folded] = k
+	return nil
+}
+
+// validNick accepts names safe to use as IRC nicks. A name that is 8 hex
+// characters could collide with a key-derived nick, so it is rejected.
+func validNick(name string) bool {
+	if name == "" || len(name) > 32 || name[0] == '-' || (name[0] >= '0' && name[0] <= '9') {
+		return false
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return !(len(name) == NickLength && strings.Trim(strings.ToLower(name), "0123456789abcdef") == "")
 }
 
 func parseAllowKey(field string) (key.NodePublic, error) {

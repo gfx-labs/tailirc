@@ -10,7 +10,7 @@ Each participant creates a client key once and sends the printed `nodekey:...` t
 tailcat genkey --client --key=client-default
 ```
 
-Nicks are the first 8 hex characters of the client's public key and cannot be changed.
+Nicks are the name given in the host's allowlist (see below), else the first 8 hex characters of the client's public key. Clients cannot change them.
 
 ## Host
 
@@ -18,9 +18,11 @@ Put allowed keys in `~/.config/tailcat/allowed-ircs`, one per line. `#` starts a
 
 ```
 # team
-nodekey:aaa...  # alice
-nodekey:bbb...  # bob
+alice@nodekey:aaa...  # named: shows as alice
+nodekey:bbb...        # unnamed: shows as the first 8 hex of the key
 ```
+
+Names use letters, digits, `-` and `_`, up to 32 characters, must not start with a digit or `-`, and must be unique.
 
 ```sh
 tailirc serve                                  # reads ~/.config/tailcat/allowed-ircs

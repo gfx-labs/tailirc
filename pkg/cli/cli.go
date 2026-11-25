@@ -121,10 +121,10 @@ func logf(cmd *cli.Command) logger.Logf {
 }
 
 func serve(ctx context.Context, cmd *cli.Command) error {
-	var allow tailcat.KeySet
+	var allow tckeys.AllowList
 	allowed := 0
 	for _, v := range cmd.StringSlice("allow") {
-		n, err := tckeys.ParseAllowKeys(v, &allow)
+		n, err := allow.Parse(v)
 		if err != nil {
 			return err
 		}
@@ -146,7 +146,7 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "reading allowed keys from %s\n", path)
-		n, err := tckeys.ParseAllowKeys(string(data), &allow)
+		n, err := allow.Parse(string(data))
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
@@ -158,7 +158,7 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 
 	server := &tailcat.Server{
 		Logf:        logf(cmd),
-		AllowClient: allow.Contains,
+		AllowClient: allow.Keys.Contains,
 	}
 	saved, err := tckeys.LoadServerKey(cmd.String("key"))
 	if err != nil {
@@ -186,7 +186,7 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 		fmt.Fprintf(os.Stderr, "address: %s\n", addr)
 		fmt.Fprintf(os.Stderr, "example: tailirc tui '%s#general'\n", addr)
 		irc := ircd.New(ircd.Config{HistoryLimit: int(cmd.Int("history"))})
-		return irc.Serve(ctx, listener, peerNick(server))
+		return irc.Serve(ctx, listener, peerNick(server, &allow))
 	}
 
 	ui := tui.New(tui.Config{
@@ -198,7 +198,7 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- irc.Serve(ctx, listener, peerNick(server)) }()
+	go func() { serveErr <- irc.Serve(ctx, listener, peerNick(server, &allow)) }()
 
 	info, err := tailcat.ParseAddr(addr)
 	if err != nil {
@@ -217,13 +217,13 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 	return <-serveErr
 }
 
-func peerNick(server *tailcat.Server) ircd.Identify {
+func peerNick(server *tailcat.Server, allow *tckeys.AllowList) ircd.Identify {
 	return func(c net.Conn) (string, bool) {
 		k, ok := server.PeerKey(c.RemoteAddr())
 		if !ok {
 			return "", false
 		}
-		return tckeys.Nick(k), true
+		return allow.Nick(k), true
 	}
 }
 
@@ -349,8 +349,8 @@ func connect(ctx context.Context, cmd *cli.Command) error {
 		<-ctx.Done()
 		listener.Close()
 	}()
-	fmt.Fprintf(os.Stderr, "connected as %s; point your IRC client at %s (no TLS, no password)\n",
-		tckeys.Nick(key.Public()), listener.Addr())
+	fmt.Fprintf(os.Stderr, "connected with key %s; point your IRC client at %s (no TLS, no password)\n",
+		key.Public().ShortString(), listener.Addr())
 	for {
 		local, err := listener.Accept()
 		if err != nil {
