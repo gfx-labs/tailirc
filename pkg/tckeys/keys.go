@@ -81,6 +81,8 @@ type AllowList struct {
 	Keys  tailcat.KeySet
 	names map[key.NodePublic]string
 	nicks map[string]key.NodePublic
+	// prefixNames maps a key-derived nick (hex prefix) to a display name.
+	prefixNames map[string]string
 }
 
 // Nick returns the configured name for k, or the key-derived nick.
@@ -88,13 +90,28 @@ func (a *AllowList) Nick(k key.NodePublic) string {
 	if n, ok := a.names[k]; ok {
 		return n
 	}
-	return Nick(k)
+	return a.Display(Nick(k))
+}
+
+// Display maps a nick seen on the wire to the local name for it: a
+// name@hexprefix entry, or a name@key entry whose key has that prefix.
+// Unknown nicks are returned unchanged.
+func (a *AllowList) Display(nick string) string {
+	if a == nil {
+		return nick
+	}
+	if n, ok := a.prefixNames[strings.ToLower(nick)]; ok {
+		return n
+	}
+	return nick
 }
 
 // Parse adds entries separated by commas, spaces or newlines. Each entry is a
 // nodekey:... public key or a tailcat address (whose server key is used),
-// optionally prefixed with "name@" to set that client's nick. # starts a
-// comment.
+// optionally prefixed with "name@" to set that client's nick. "name@hexprefix"
+// (the 8 hex characters shown as an unnamed nick) only renames that nick for
+// display and does not allow anyone to connect. # starts a comment. It returns
+// the number of keys added.
 func (a *AllowList) Parse(text string) (int, error) {
 	count := 0
 	for _, line := range strings.Split(text, "\n") {
@@ -105,6 +122,12 @@ func (a *AllowList) Parse(text string) (int, error) {
 			name, keyText, named := strings.Cut(field, "@")
 			if !named {
 				keyText = field
+			}
+			if named && isHexPrefix(keyText) {
+				if err := a.setPrefixName(name, strings.ToLower(keyText)); err != nil {
+					return count, err
+				}
+				continue
 			}
 			k, err := parseAllowKey(keyText)
 			if err != nil {
@@ -120,6 +143,29 @@ func (a *AllowList) Parse(text string) (int, error) {
 		}
 	}
 	return count, nil
+}
+
+func isHexPrefix(s string) bool {
+	return len(s) == NickLength && strings.Trim(strings.ToLower(s), "0123456789abcdef") == ""
+}
+
+func (a *AllowList) setPrefixName(name, prefix string) error {
+	if !validNick(name) {
+		return fmt.Errorf("invalid name %q: use letters, digits, - or _, up to 32 characters", name)
+	}
+	if a.prefixNames == nil {
+		a.prefixNames = map[string]string{}
+	}
+	if old, ok := a.prefixNames[prefix]; ok && !strings.EqualFold(old, name) {
+		return fmt.Errorf("%s has two names: %q and %q", prefix, old, name)
+	}
+	for p, n := range a.prefixNames {
+		if p != prefix && strings.EqualFold(n, name) {
+			return fmt.Errorf("name %q is given to both %s and %s", name, p, prefix)
+		}
+	}
+	a.prefixNames[prefix] = name
+	return nil
 }
 
 func (a *AllowList) setName(name string, k key.NodePublic) error {
@@ -139,7 +185,9 @@ func (a *AllowList) setName(name string, k key.NodePublic) error {
 	}
 	a.names[k] = name
 	a.nicks[folded] = k
-	return nil
+	// Clients only see the hex prefix of an unnamed peer, so a name@key entry
+	// also renames that prefix when displayed.
+	return a.setPrefixName(name, Nick(k))
 }
 
 // validNick accepts names safe to use as IRC nicks. A name that is 8 hex
@@ -153,7 +201,24 @@ func validNick(name string) bool {
 			return false
 		}
 	}
-	return !(len(name) == NickLength && strings.Trim(strings.ToLower(name), "0123456789abcdef") == "")
+	return !isHexPrefix(name)
+}
+
+// LoadAllowFile parses path into a. A missing file is not an error when
+// optional is true. It returns the number of keys added.
+func (a *AllowList) LoadAllowFile(path string, optional bool) (int, error) {
+	data, err := os.ReadFile(path)
+	if optional && errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	n, err := a.Parse(string(data))
+	if err != nil {
+		return n, fmt.Errorf("%s: %w", path, err)
+	}
+	return n, nil
 }
 
 func parseAllowKey(field string) (key.NodePublic, error) {

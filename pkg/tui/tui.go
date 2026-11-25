@@ -23,6 +23,9 @@ type Config struct {
 	Info string
 	// Addr is the server's tailcat address. Alt-Shift-C copies Addr#channel.
 	Addr string
+	// DisplayNick maps a nick from the server to the name shown. Nil shows
+	// nicks unchanged.
+	DisplayNick func(string) string
 }
 
 // UI is a running terminal session. Logf may be used from any goroutine,
@@ -33,6 +36,7 @@ type UI struct {
 	input    *tview.InputField
 	title    *tview.TextView
 	theme    Theme
+	display  func(string) string
 	addr     string
 	screen   tcell.Screen
 
@@ -50,6 +54,7 @@ func New(config Config) *UI {
 	theme.apply()
 	u := &UI{
 		theme:    theme,
+		display:  config.DisplayNick,
 		app:      tview.NewApplication(),
 		messages: tview.NewTextView().SetDynamicColors(true).SetScrollable(true).SetWrap(true),
 		input:    tview.NewInputField().SetLabel("> ").SetFieldBackgroundColor(tcell.ColorDefault),
@@ -112,7 +117,14 @@ func (u *UI) setTitle() {
 	}
 	u.mu.Unlock()
 	u.title.SetText(fmt.Sprintf("[::b]tailirc[::-] %s  [%s]%s[-]  [%s]%s  Alt-Shift-C copy[-]",
-		tview.Escape(ch), u.theme.Self, name, u.theme.Dim, tview.Escape(shortAddr(u.addr)+ch)))
+		tview.Escape(ch), u.theme.Self, u.nick(name), u.theme.Dim, tview.Escape(shortAddr(u.addr)+ch)))
+}
+
+func (u *UI) nick(n string) string {
+	if u.display == nil || n == "" {
+		return n
+	}
+	return u.display(n)
 }
 
 func shortAddr(addr string) string {
@@ -201,6 +213,8 @@ func (u *UI) show(ev ircclient.Event) {
 	}
 	u.mu.Unlock()
 	m := ev.Message
+	isMe := m.Nick == me
+	m.Nick = u.nick(m.Nick)
 	if !strings.EqualFold(m.Target, current) && ev.Kind != ircclient.EventQuit && ev.Kind != ircclient.EventError {
 		if ev.Kind == ircclient.EventMessage && !ev.History {
 			u.system("new message in %s from %s", m.Target, m.Nick)
@@ -211,12 +225,12 @@ func (u *UI) show(ev ircclient.Event) {
 	switch ev.Kind {
 	case ircclient.EventMessage:
 		color := u.theme.Other
-		if m.Nick == me {
+		if isMe {
 			color = u.theme.Self
 		}
 		fmt.Fprintf(u.messages, "[%s]%s[-] [%s]<%s>[-] %s\n", u.theme.Dim, ts, color, m.Nick, tview.Escape(m.Text))
 	case ircclient.EventJoin:
-		if m.Nick != me {
+		if !isMe {
 			u.system("%s joined", m.Nick)
 		}
 	case ircclient.EventPart:

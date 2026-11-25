@@ -36,6 +36,10 @@ func newCommand() *cli.Command {
 		Value: "client-default",
 		Usage: "client key name or path, from `tailcat genkey --client`",
 	}
+	namesFlag := &cli.StringFlag{
+		Name:  "names",
+		Usage: "file of name@key or name@hexprefix entries used to show nicks (default: $CONFIG/tailcat/allowed-ircs, if it exists)",
+	}
 	return &cli.Command{
 		Name:  "tailirc",
 		Usage: "IRC over tailcat, with messages kept in memory by the host",
@@ -96,7 +100,7 @@ func newCommand() *cli.Command {
 				Name:      "tui",
 				Usage:     "interactive chat session; type /join #chan to switch channels",
 				ArgsUsage: "ADDR[#CHANNEL]",
-				Flags:     []cli.Flag{clientKey},
+				Flags:     []cli.Flag{clientKey, namesFlag},
 				Action:    runTUI,
 			},
 			{
@@ -105,6 +109,7 @@ func newCommand() *cli.Command {
 				ArgsUsage: "ADDR#CHANNEL",
 				Flags: []cli.Flag{
 					clientKey,
+					namesFlag,
 					&cli.IntFlag{Name: "limit", Aliases: []string{"n"}, Usage: "most recent messages to print; 0 for the whole buffer"},
 				},
 				Action: read,
@@ -141,14 +146,10 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 	if path != "" {
-		data, err := os.ReadFile(path)
+		fmt.Fprintf(os.Stderr, "reading allowed keys from %s\n", path)
+		n, err := allow.LoadAllowFile(path, false)
 		if err != nil {
 			return err
-		}
-		fmt.Fprintf(os.Stderr, "reading allowed keys from %s\n", path)
-		n, err := allow.Parse(string(data))
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
 		}
 		allowed += n
 	}
@@ -311,6 +312,10 @@ func send(ctx context.Context, cmd *cli.Command) error {
 }
 
 func read(ctx context.Context, cmd *cli.Command) error {
+	names, err := loadNames(cmd)
+	if err != nil {
+		return err
+	}
 	irc, channel, cleanup, err := registeredClient(ctx, cmd)
 	if err != nil {
 		return err
@@ -321,7 +326,7 @@ func read(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	for _, m := range messages {
-		fmt.Printf("%s <%s> %s\n", m.Time.Local().Format("2006-01-02 15:04:05"), m.Nick, m.Text)
+		fmt.Printf("%s <%s> %s\n", m.Time.Local().Format("2006-01-02 15:04:05"), names.Display(m.Nick), m.Text)
 	}
 	return irc.Quit()
 }

@@ -20,6 +20,8 @@ printf 'line1\nline2\n' | "$bin" send --key=bob "$ADDR#secrets"; echo "send2=$?"
 "$bin" send "$ADDR#other" "other chan"
 "$bin" read --key=bob "$ADDR#secrets"; echo "read=$?"
 "$bin" read -n 1 "$ADDR#secrets"
+printf 'bob@%s\n' "${B:8:8}" >names
+"$bin" read --names names "$ADDR#secrets"; echo "names-read=$?"
 "$bin" read "$ADDR#other"
 timeout 45 "$bin" read --key=eve "$ADDR#secrets"; echo "eve=$?"
 kill "$srv"

@@ -24,6 +24,14 @@ nodekey:bbb...        # unnamed: shows as the first 8 hex of the key
 
 Names use letters, digits, `-` and `_`, up to 32 characters, must not start with a digit or `-`, and must be unique.
 
+Clients read the same file to show names locally. `tailirc tui` and `tailirc read` use `~/.config/tailcat/allowed-ircs` if it exists, or `--names FILE`. There, `name@hexprefix` renames the 8-hex nick the server shows for an unnamed key, without needing the full key:
+
+```
+bob@e63cb175
+```
+
+On the host, `name@hexprefix` only changes display. It does not allow a key to connect.
+
 ```sh
 tailirc serve                                  # reads ~/.config/tailcat/allowed-ircs
 tailirc serve --allow-file other.txt           # replaces the default file
