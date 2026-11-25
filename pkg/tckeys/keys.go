@@ -25,6 +25,16 @@ func keyPath(name string) (string, error) {
 	return filepath.Join(dir, "tailcat", "keys", name+".private.json"), nil
 }
 
+// DefaultAllowFile is where serve reads allowed client keys when no
+// --allow-file is given: $CONFIG/tailcat/allowed-ircs.
+func DefaultAllowFile() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "tailcat", "allowed-ircs"), nil
+}
+
 func LoadKey(name string) (*tailcat.PrivateKey, error) {
 	path, err := keyPath(name)
 	if err != nil {

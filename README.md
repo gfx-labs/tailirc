@@ -14,9 +14,18 @@ Nicks are the first 8 hex characters of the client's public key and cannot be ch
 
 ## Host
 
+Put allowed keys in `~/.config/tailcat/allowed-ircs`, one per line. `#` starts a comment, whole-line or trailing:
+
+```
+# team
+nodekey:aaa...  # alice
+nodekey:bbb...  # bob
+```
+
 ```sh
-tailirc serve --allow nodekey:aaa...,nodekey:bbb...
-tailirc serve --allow-file allowed.txt     # one key per line, # comments
+tailirc serve                                  # reads ~/.config/tailcat/allowed-ircs
+tailirc serve --allow-file other.txt           # replaces the default file
+tailirc serve --allow nodekey:ccc...           # adds to the file's keys
 ```
 
 Uses the saved tailcat `default` key if present (stable address), else an ephemeral one. `--key=new` forces an ephemeral address. `--history` sets messages kept per channel (default 1000).

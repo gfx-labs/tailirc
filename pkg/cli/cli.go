@@ -55,7 +55,7 @@ func newCommand() *cli.Command {
 					},
 					&cli.StringFlag{
 						Name:  "allow-file",
-						Usage: "file of allowed client public keys, one per line, # comments",
+						Usage: "file of allowed client public keys, one per line, # comments (default: $CONFIG/tailcat/allowed-ircs, if it exists)",
 					},
 					&cli.IntFlag{
 						Name:  "history",
@@ -113,11 +113,22 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 		}
 		allowed += n
 	}
-	if path := cmd.String("allow-file"); path != "" {
+	path := cmd.String("allow-file")
+	if path == "" {
+		defaultPath, err := tckeys.DefaultAllowFile()
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(defaultPath); err == nil {
+			path = defaultPath
+		}
+	}
+	if path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
+		fmt.Fprintf(os.Stderr, "reading allowed keys from %s\n", path)
 		n, err := tckeys.ParseAllowKeys(string(data), &allow)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
@@ -125,7 +136,7 @@ func serve(ctx context.Context, cmd *cli.Command) error {
 		allowed += n
 	}
 	if allowed == 0 {
-		return fmt.Errorf("no allowed client keys; pass --allow nodekey:... or --allow-file")
+		return fmt.Errorf("no allowed client keys; add nodekey:... lines to $CONFIG/tailcat/allowed-ircs, or pass --allow or --allow-file")
 	}
 
 	server := &tailcat.Server{
